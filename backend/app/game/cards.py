@@ -10,3 +10,11 @@ class Card(Enum):
     CAPTAIN = "Captain"
     AMBASSADOR = "Ambassador"
     CONTESSA = "Contessa"
+
+ALL_CARDS = [
+    Card.DUKE, Card.DUKE, Card.DUKE,
+    Card.ASSASSIN, Card.ASSASSIN, Card.ASSASSIN,
+    Card.CAPTAIN, Card.CAPTAIN, Card.CAPTAIN,
+    Card.AMBASSADOR, Card.AMBASSADOR, Card.AMBASSADOR,
+    Card.CONTESSA, Card.CONTESSA, Card.CONTESSA,
+]
