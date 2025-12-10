@@ -1,5 +1,5 @@
 '''
-enum class to define different possible actions
+enum class to define different possible actions in the game.
 '''
 from enum import Enum
 
