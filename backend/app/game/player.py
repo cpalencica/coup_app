@@ -29,3 +29,5 @@ class Player:
     
     def is_alive(self):
         return self.influence > 0
+    def hello(self):
+        return "hello world"
