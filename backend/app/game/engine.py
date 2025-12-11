@@ -1,4 +1,5 @@
 import random
+from typing import Optional
 
 from .cards import Card, ALL_CARDS
 from .actions import Action
@@ -32,6 +33,9 @@ class GameEngine:
         for p in self.state.players:
             p.cards = [self.state.deck.pop(), self.state.deck.pop()]
 
+        # Reset turn pointer to the first alive player
+        self.state.current_player_idx = 0
+
     ###########################################
     # Turn and Helpers
     ###########################################
@@ -56,7 +60,12 @@ class GameEngine:
             raise NotPlayersTurnError("Not your turn")
 
         player = self.state.get_player(player_id)
+        if player is None:
+            raise InvalidActionError("Unknown player")
+
         target = self.state.get_player(target_id) if target_id else None
+        if target_id and target is None:
+            raise InvalidActionError("Unknown target player")
 
         # Check coup coin requirement
         if action == Action.COUP and player.coins < 7:
@@ -78,6 +87,10 @@ class GameEngine:
             self.state.awaiting_challenge = False
 
         # Determine if block is possible
+        # Which actions can be blocked (game rules simplified):
+        # - FOREIGN_AID can be blocked by Duke
+        # - STEAL can be blocked by Captain/Ambassador
+        # - ASSASSINATE can be blocked by Contessa
         if action in [Action.FOREIGN_AID, Action.STEAL, Action.ASSASSINATE]:
             self.state.awaiting_block = True
         else:
@@ -102,7 +115,11 @@ class GameEngine:
             Action.STEAL: Card.CAPTAIN,
             Action.ASSASSINATE: Card.ASSASSIN,
             Action.EXCHANGE: Card.AMBASSADOR
-        }[action]
+        }.get(action, None)
+
+        if required_card is None:
+            # No valid required card (shouldn't be challengeable)
+            raise InvalidActionError("This action cannot be challenged")
 
         # Check if actor actually had the card
         if required_card in actor.cards:
@@ -141,11 +158,14 @@ class GameEngine:
             raise InvalidActionError("No block available")
 
         blocker = self.state.get_player(blocker_id)
+        if blocker is None:
+            raise InvalidActionError("Unknown blocker")
 
         # Track block so challenge can target it
         self.state.block_type = block_type
+        # After declaring a block, the other players may challenge the block
         self.state.awaiting_block = False
-        self.state.awaiting_challenge = True  # you can challenge the block
+        self.state.awaiting_challenge = True
 
         return "Block declared"
 
