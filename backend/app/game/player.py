@@ -12,3 +12,9 @@ class Player:
 
     def lose_card(self, index):
         return self.cards.pop(index)
+    
+    def add_coins(self,coins_added):
+        self.coins += coins_added  
+    
+    def add_card(self,card):
+        self.cards.append(card)
