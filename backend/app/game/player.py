@@ -13,9 +13,15 @@ class Player:
     def lose_card(self, index):
         return self.cards.pop(index)
     
+    def add_coins(self,coins_added):
+        self.coins += coins_added  
+    
+    def add_card(self,card):
+        self.cards.append(card)
+    
     @property
     def influence(self):
         return len(self.cards)
-
+    
     def is_alive(self):
         return self.influence > 0
