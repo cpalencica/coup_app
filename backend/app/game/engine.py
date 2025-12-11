@@ -30,7 +30,10 @@ class GameEngine:
 
         # Deal 2 cards to each player
         for p in self.state.players:
-            p.cards = [self.state.deck.pop(), self.state.deck.pop()]
+            p.cards = [self._draw_card(), self._draw_card()]
+
+        # Reset turn pointer to the first alive player
+        self.state.current_player_idx = 0
 
     ###########################################
     # Turn and Helpers
@@ -56,7 +59,12 @@ class GameEngine:
             raise NotPlayersTurnError("Not your turn")
 
         player = self.state.get_player(player_id)
+        if player is None:
+            raise InvalidActionError("Unknown player")
+
         target = self.state.get_player(target_id) if target_id else None
+        if target_id and target is None:
+            raise InvalidActionError("Unknown target player")
 
         # Check coup coin requirement
         if action == Action.COUP and player.coins < 7:
@@ -96,25 +104,62 @@ class GameEngine:
         challenger = self.state.get_player(challenger_id)
         actor = self.state.pending_actor
         action = self.state.pending_action
+        
+        # If there is a pending block, the challenge targets the block claim
+        if self.state.pending_blocker is not None:
+            blocker = self.state.pending_blocker
+            required_card = self.state.pending_block_claim
 
+            # Blocker actually has the card -> challenger loses
+            if required_card in blocker.cards:
+                lost = challenger.lose_card(0)
+                self.state.discard.append(lost)
+
+                # Blocker reveals + redraws
+                blocker.cards.remove(required_card)
+                self.state.discard.append(required_card)
+                new_card = self._draw_card()
+                blocker.cards.append(new_card)
+
+                # Block is validated
+                self.state.pending_block_valid = True
+                # block stands; action will be cancelled at resolve
+                self.state.awaiting_challenge = False
+                return "Challenge failed (challenger lost influence) — block stands"
+
+            else:
+                # Blocker loses influence; block fails and action proceeds
+                lost = blocker.lose_card(0)
+                self.state.discard.append(lost)
+
+                # clear pending block so action can proceed
+                self.state.pending_blocker = None
+                self.state.pending_block_claim = None
+                self.state.pending_block_valid = False
+                self.state.awaiting_challenge = False
+                return "Challenge successful (block failed) — action continues"
+
+        # Otherwise the challenge targets the actor's claimed card for the action
         required_card = {
             Action.TAX: Card.DUKE,
             Action.STEAL: Card.CAPTAIN,
             Action.ASSASSINATE: Card.ASSASSIN,
             Action.EXCHANGE: Card.AMBASSADOR
-        }[action]
+        }.get(action, None)
+
+        if required_card is None:
+            raise InvalidActionError("This action cannot be challenged")
 
         # Check if actor actually had the card
         if required_card in actor.cards:
             # Actor wins challenge
-            challenger_card_idx = 0  # for now force first card
-            lost = challenger.lose_card(challenger_card_idx)
+            lost = challenger.lose_card(0)
             self.state.discard.append(lost)
 
             # Actor reveals + redraws the correct card
             actor.cards.remove(required_card)
             self.state.discard.append(required_card)
-            new_card = self.state.deck.pop()
+            new_card = self._draw_card()
             actor.cards.append(new_card)
 
             # Challenge is resolved — continue to block phase or resolution
@@ -142,10 +187,15 @@ class GameEngine:
 
         blocker = self.state.get_player(blocker_id)
 
-        # Track block so challenge can target it
-        self.state.block_type = block_type
+        if blocker is None:
+            raise InvalidActionError("Unknown blocker")
+
+        # Track block so challenge can target it. Expect `block_type` to be a Card enum value
+        self.state.pending_blocker = blocker
+        self.state.pending_block_claim = block_type
+        self.state.pending_block_valid = None
         self.state.awaiting_block = False
-        self.state.awaiting_challenge = True  # you can challenge the block
+        self.state.awaiting_challenge = True  # other players may challenge the block
 
         return "Block declared"
 
@@ -157,6 +207,14 @@ class GameEngine:
         action = self.state.pending_action
         actor = self.state.pending_actor
         target = self.state.pending_target
+
+        # If a block was declared and still stands (or hasn't been cleared), cancel action
+        if self.state.pending_blocker is not None:
+            # If block exists and wasn't invalidated by a successful challenge, treat as blocked
+            # (if pending_blocker was cleared by a challenge, this will be None and action proceeds)
+            self._cleanup_pending()
+            self.next_turn()
+            return "Action blocked"
 
         # Income
         if action == Action.INCOME:
@@ -190,7 +248,7 @@ class GameEngine:
 
         # Exchange
         elif action == Action.EXCHANGE:
-            new_cards = [self.state.deck.pop(), self.state.deck.pop()]
+            new_cards = [self._draw_card(), self._draw_card()]
             actor.cards.extend(new_cards)
             # For now player keeps first two they pick — keep simple
             while len(actor.cards) > 2:
@@ -207,6 +265,17 @@ class GameEngine:
     # Utility
     ###########################################
 
+    def _draw_card(self):
+        # Draw a card from deck; if deck empty, reshuffle discard into deck
+        if not self.state.deck:
+            if self.state.discard:
+                self.state.deck = self.state.discard.copy()
+                self.state.discard.clear()
+                random.shuffle(self.state.deck)
+            else:
+                raise InvalidActionError("No cards left to draw")
+        return self.state.deck.pop()
+
     def _cleanup_pending(self):
         self.state.pending_action = None
         self.state.pending_actor = None
@@ -214,3 +283,7 @@ class GameEngine:
         self.state.awaiting_challenge = False
         self.state.awaiting_block = False
         self.state.block_type = None
+        # clear block-specific pending state
+        self.state.pending_blocker = None
+        self.state.pending_block_claim = None
+        self.state.pending_block_valid = None

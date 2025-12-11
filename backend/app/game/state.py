@@ -12,6 +12,13 @@ class GameState:
         self.pending_actor = None
         self.pending_target = None
 
+        # Pending block information
+        self.pending_blocker = None
+        # claim for block (Card enum) — what the blocker claims they have
+        self.pending_block_claim = None
+        # whether the declared block was validated by a challenge (True), invalidated (False), or not-yet-resolved (None)
+        self.pending_block_valid = None
+
         # Whether we are waiting for challenge/block resolution
         self.awaiting_challenge = False
         self.awaiting_block = False

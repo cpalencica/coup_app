@@ -11,7 +11,11 @@ class Player:
         self.alive = True
 
     def lose_card(self, index):
-        return self.cards.pop(index)
+        card = self.cards.pop(index)
+        # update alive flag
+        if len(self.cards) == 0:
+            self.alive = False
+        return card
     
     def add_coins(self,coins_added):
         self.coins += coins_added  
