@@ -12,3 +12,10 @@ class Player:
 
     def lose_card(self, index):
         return self.cards.pop(index)
+    
+    @property
+    def influence(self):
+        return len(self.cards)
+
+    def is_alive(self):
+        return self.influence > 0
