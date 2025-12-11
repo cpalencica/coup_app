@@ -107,13 +107,13 @@ class GameEngine:
         # Check if actor actually had the card
         if required_card in actor.cards:
             # Actor wins challenge
-            challenger_card_idx = 0  # for now force first card
-            lost = challenger.lose_card(challenger_card_idx)
+            lost = challenger.lose_card(0)
             self.state.discard.append(lost)
 
             # Actor reveals + redraws the correct card
             actor.cards.remove(required_card)
-            self.state.discard.append(required_card)
+            self.state.deck.append(required_card)
+            random.shuffle(self.state.deck)
             new_card = self.state.deck.pop()
             actor.cards.append(new_card)
 
