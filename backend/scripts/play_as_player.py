@@ -118,11 +118,46 @@ def main():
                 print("declare_action failed:", e)
                 continue
 
+            # CHALLENGE/BLOCK: give the primary target first option to challenge or block
+            if eng.state.pending_target and eng.state.pending_target.is_alive():
+                target = eng.state.pending_target
+                # Only offer options if actor-challenge is possible or blockable
+                if eng.state.awaiting_challenge and eng.state.awaiting_challenge_target == 'actor' or eng.state.awaiting_block:
+                    ans = input(f"Player {target.id} ({target.name}) respond: (c)hallenge actor, (b)lock, (p)ass: ").strip().lower()
+                    if ans == 'c' and eng.state.awaiting_challenge and eng.state.awaiting_challenge_target == 'actor':
+                        try:
+                            msg = eng.challenge(target.id)
+                            print("challenge:", msg)
+                        except Exception as e:
+                            print("challenge failed:", e)
+                        if eng.state.pending_action is None:
+                            print("Action was cancelled due to successful challenge")
+                            continue
+                    elif ans == 'b' and eng.state.awaiting_block:
+                        print("Block card options:", ", ".join([c.value for c in Card]))
+                        card_in = input("Enter block card name (e.g. Contessa): ").strip().lower()
+                        card = CARD_MAP.get(card_in)
+                        if card is None:
+                            print("Unknown card; cancelling block")
+                        else:
+                            try:
+                                eng.block(target.id, card)
+                                print(f"Player {target.id} declared a block with {card.value}")
+                                blocked = True
+                            except Exception as e:
+                                print("block failed:", e)
+                                blocked = False
+
+                    # if challenge canceled action
+                    if eng.state.pending_action is None:
+                        continue
+
             # BLOCK PHASE
             if eng.state.awaiting_block:
                 blocked = False
                 for p in eng.state.players:
-                    if not p.is_alive() or p.id == current.id:
+                    if not p.is_alive() or p.id == current.id or (eng.state.pending_target and p.id == eng.state.pending_target.id):
+                        # skip actor and we already gave the target a chance
                         continue
                     ans = input(f"Player {p.id} ({p.name}) block this action? (y/N): ").strip().lower()
                     if ans == 'y':
@@ -138,18 +173,28 @@ def main():
                         blocked = True
                         break
 
-                # If a block was declared, allow challenges to the block
-                if blocked and eng.state.awaiting_challenge:
-                    for p in eng.state.players:
-                        if not p.is_alive():
-                            continue
-                        if p.id == eng.state.pending_blocker:
-                            continue
-                        ans = input(f"Player {p.id} ({p.name}) challenge the block? (y/N): ").strip().lower()
-                        if ans == 'y':
-                            msg = eng.challenge(p.id)
-                            print("challenge:", msg)
-                            break
+                # If a block was declared, allow challenges to the block (actor included)
+                if blocked:
+                    block_challenged = False
+                    if eng.state.awaiting_challenge and eng.state.awaiting_challenge_target == 'block':
+                        for p in eng.state.players:
+                            if not p.is_alive():
+                                continue
+                            # Blocker cannot challenge own block
+                            if eng.state.pending_blocker is not None and p.id == eng.state.pending_blocker:
+                                continue
+                            ans = input(f"Player {p.id} ({p.name}) challenge the block? (y/N): ").strip().lower()
+                            if ans == 'y':
+                                msg = eng.challenge(p.id)
+                                print("challenge:", msg)
+                                block_challenged = True
+                                break
+
+                    # If there was no challenge to the block, the block stands and the action is cancelled
+                    if not block_challenged and eng.state.pending_blocker is not None and eng.state.awaiting_challenge_target == 'block':
+                        msg = eng.cancel_action()
+                        print("Block stands —", msg)
+                        continue
 
                     # if challenge canceled action
                     if eng.state.pending_action is None:
@@ -157,7 +202,7 @@ def main():
                         continue
 
             # CHALLENGE PHASE (when no block or after block resolved and still awaiting_challenge)
-            if eng.state.awaiting_challenge:
+            if eng.state.awaiting_challenge and eng.state.awaiting_challenge_target == 'actor':
                 for p in eng.state.players:
                     if not p.is_alive() or p.id == current.id:
                         continue

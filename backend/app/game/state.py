@@ -23,6 +23,8 @@ class GameState:
         self.awaiting_challenge = False
         self.awaiting_block = False
         self.block_type = None
+        # Which entity is currently being challenged: 'actor' or 'block' or None
+        self.awaiting_challenge_target = None
 
     def get_player(self, player_id):
         for p in self.players:

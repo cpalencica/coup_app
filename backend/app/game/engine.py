@@ -79,11 +79,20 @@ class GameEngine:
         self.state.pending_actor = player
         self.state.pending_target = target
 
+        # Handle immediate costs for certain actions (assassination cost is paid on declaration)
+        if action == Action.ASSASSINATE:
+            if player.coins < 3:
+                raise InvalidActionError("Not enough coins for assassinate")
+            player.coins -= 3
+
         # Determine if challenge is possible
         if action in [Action.TAX, Action.STEAL, Action.ASSASSINATE, Action.EXCHANGE]:
             self.state.awaiting_challenge = True
+            # initial challenge target is the actor's claim
+            self.state.awaiting_challenge_target = 'actor'
         else:
             self.state.awaiting_challenge = False
+            self.state.awaiting_challenge_target = None
 
         # Determine if block is possible
         if action in [Action.FOREIGN_AID, Action.STEAL, Action.ASSASSINATE]:
@@ -104,13 +113,18 @@ class GameEngine:
         challenger = self.state.get_player(challenger_id)
         actor = self.state.pending_actor
         action = self.state.pending_action
-        
-        # If there is a pending block, the challenge targets the block claim
-        if self.state.pending_blocker is not None:
-            blocker = self.state.pending_blocker
+        # Determine what is being challenged (block vs actor)
+        if self.state.awaiting_challenge_target == 'block':
+            if self.state.pending_blocker is None:
+                raise InvalidActionError("No block to challenge")
+
+            blocker = self.state.get_player(self.state.pending_blocker)
             required_card = self.state.pending_block_claim
 
-            # Blocker actually has the card -> challenger loses
+            if required_card is None:
+                raise InvalidActionError("Block has no claimed card")
+
+            # Blocker actually has the card -> challenger loses influence; block stands and action is cancelled
             if required_card in blocker.cards:
                 lost = challenger.lose_card(0)
                 self.state.discard.append(lost)
@@ -121,14 +135,13 @@ class GameEngine:
                 new_card = self._draw_card()
                 blocker.cards.append(new_card)
 
-                # Block is validated
-                self.state.pending_block_valid = True
-                # block stands; action will be cancelled at resolve
-                self.state.awaiting_challenge = False
+                # Block validated — cancel action and advance turn
+                self._cleanup_pending()
+                self.next_turn()
                 return "Challenge failed (challenger lost influence) — block stands"
 
             else:
-                # Blocker loses influence; block fails and action proceeds
+                # Blocker loses influence; block fails and action proceeds to actor challenge/resolution
                 lost = blocker.lose_card(0)
                 self.state.discard.append(lost)
 
@@ -137,6 +150,7 @@ class GameEngine:
                 self.state.pending_block_claim = None
                 self.state.pending_block_valid = False
                 self.state.awaiting_challenge = False
+                self.state.awaiting_challenge_target = 'actor'
                 return "Challenge successful (block failed) — action continues"
 
         # Otherwise the challenge targets the actor's claimed card for the action
@@ -164,6 +178,7 @@ class GameEngine:
 
             # Challenge is resolved — continue to block phase or resolution
             self.state.awaiting_challenge = False
+            self.state.awaiting_challenge_target = None
 
             return "Challenge failed (challenger lost influence)"
 
@@ -191,11 +206,15 @@ class GameEngine:
             raise InvalidActionError("Unknown blocker")
 
         # Track block so challenge can target it. Expect `block_type` to be a Card enum value
-        self.state.pending_blocker = blocker
+        if self.state.pending_blocker is not None:
+            raise InvalidActionError("A block has already been declared")
+
+        self.state.pending_blocker = blocker.id
         self.state.pending_block_claim = block_type
         self.state.pending_block_valid = None
         self.state.awaiting_block = False
         self.state.awaiting_challenge = True  # other players may challenge the block
+        self.state.awaiting_challenge_target = 'block'
 
         return "Block declared"
 
@@ -236,9 +255,9 @@ class GameEngine:
 
         # Assassinate
         elif action == Action.ASSASSINATE:
-            actor.coins -= 3
-            lost = target.lose_card(0)
-            self.state.discard.append(lost)
+                # Assassination cost is paid on declaration; here we only execute the effect
+                lost = target.lose_card(0)
+                self.state.discard.append(lost)
 
         # Steal
         elif action == Action.STEAL:
@@ -248,12 +267,14 @@ class GameEngine:
 
         # Exchange
         elif action == Action.EXCHANGE:
+            influence = len(actor.cards)
             new_cards = [self._draw_card(), self._draw_card()]
             actor.cards.extend(new_cards)
             # For now player keeps first two they pick — keep simple
-            while len(actor.cards) > 2:
-                c = actor.cards.pop()  # discard extras
-                self.state.discard.append(c)
+            while len(actor.cards) > influence:
+                c = actor.cards.pop(0)  # discard extras
+                self.state.deck.append(c)
+                random.shuffle(self.state.deck)  # shuffle deck after returning cards
 
         # Cleanup
         self._cleanup_pending()
@@ -287,3 +308,10 @@ class GameEngine:
         self.state.pending_blocker = None
         self.state.pending_block_claim = None
         self.state.pending_block_valid = None
+        self.state.awaiting_challenge_target = None
+
+    def cancel_action(self):
+        """Cancel the pending action (e.g., block stands or a successful block)."""
+        self._cleanup_pending()
+        self.next_turn()
+        return "Action cancelled"
